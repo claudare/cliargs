@@ -10,5 +10,5 @@ test "basic add functionality" {
 }
 
 test {
-    _ = @import("CliArgs.zig");
+    _ = @import("clargs.zig");
 }

@@ -282,9 +282,7 @@ const Input = struct {
     positional_index: usize = 0,
     rest_chunks: ArrayList([]const u8),
 
-    // pass in optional diagnostics, which hold the errors
-    // and documentation... if diagnostics dont exist
-    // then no diagnostics will be provided
+    // TODO: dont parse it now, parse when ready
     pub fn init(allocator: Allocator, args_iterator: anytype) Allocator.Error!Input {
         var self = Input{
             .flags = StringHashMap(void).init(allocator), // long also needs to be here
@@ -544,27 +542,10 @@ const Tokenizer = struct {
     }
 };
 
-// nest all above to have Tokenizer inside the input and all things inside
-// runtime collection
-// i need to collect subcommands, collect flags, collect arguments. All must be long and short
-// this information will only be used during help
-// but also maybe during strict mode? where unknown arguments are not used
-// technically it would be nice to just delete it from stringHasMap, but then I need to delete both short and long ones
-// i actually can delete both, if possible
-// so I only need to keep all this information for if the help is getting called
-// but I dont know if first level is help, if nothing was matched, then we must still know whats the current help situation
-// this seems rather heavy man for this simple thing
-// but i dont see anything better... its all cleaned up before runtime
-// this is only done during diagnostics
-// enable/disable should be configurable at build time
-// not at runtime?
-// there are light diagnostics with "description", "help", and "error message" as dead code, hopefully eliminated
 pub const Diagnostics = struct {
     allocator: Allocator,
-
     is_help: bool,
     error_count: usize = 0,
-    // this is an optional, and nothing will happen if -h is used
     subcommands: ArrayList(Subcommand),
     errors: ArrayList(ParseError),
 
