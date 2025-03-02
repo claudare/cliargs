@@ -8,3 +8,5 @@ Golangs standard library `flag` is also another inspiration.
 # WIP
 
 This is work in progress. This library is not complete and there are still lots of "trash" files from previous attempts at implementing this.
+
+Using [https://clig.dev/](clig.dev) conventions

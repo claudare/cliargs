@@ -32,6 +32,7 @@ pub fn Clargs(
         allocator: Allocator,
         consumer: ArgConsumer,
         writer: AnyWriter,
+        diag: Diagnostics,
 
         const ArgConsumer = struct {
             ptr_iter: *IArgIterator,
@@ -61,6 +62,7 @@ pub fn Clargs(
                 .allocator = allocator,
                 .consumer = ArgConsumer{ .ptr_iter = ptr_iter },
                 .writer = writer,
+                .diag = Diagnostics.init(allocator),
             };
         }
         pub fn deinit(self: *CliArgs) void {
@@ -68,6 +70,10 @@ pub fn Clargs(
         }
         // typesafe functions of the generic parameters
 
+        // this should return a new instance instead of piling things up on Diagnostics
+        // this _seems_ to be memory heavy and defragmented
+        // but single instance must be used as pointers are preserved?
+        // maybe thats why golang flag library doesnt do this?
         pub fn subcommand(self: *CliArgs, name: []const u8, description: []const u8) !bool {
             const value = self.consumer.get();
 
@@ -103,8 +109,87 @@ pub fn Clargs(
 
             return matched;
         }
+
+        pub fn roughTest(self: *CliArgs, name: []const u8, default: u64) *u64 {}
     };
 }
+
+const Argument = struct {
+    short_name: []const u8,
+    long_name: []const u8,
+    description: []const u8,
+    // this was my original issue and it still persists to here
+    // the generic type ArrayList(Argument) is not possible
+    // so I WILL need to parse everything upfront...
+    // It should be efficient as everything is prepared for parsing
+    // since all must be available, I should not use the iterator?
+    // its just so ugly and combersome to develop for
+    value: *T,
+};
+
+const Subcommand = struct {
+    name: []const u8,
+    description: []const u8,
+    matched: bool,
+};
+const ParseError = struct {
+    zig_error: anyerror,
+    message: []const u8,
+
+    // TODO: template all standard error messages here
+    // pub fn badFlag(allocator: Allocator, name: []const u8) ParseError {
+    //     return .{
+    //         .og = error.ParseError,
+    //         .msg = "bad flag value" ++ name,
+    //     };
+    // }
+};
+
+pub const Diagnostics = struct {
+    allocator: Allocator,
+    error_count: usize = 0, // why is this here?
+    // there are 2 subcommand arrays
+    // one for all "collected ones" to show help if nothing matched
+    // and one for the "stack" aka "server start"
+    subcommands: ArrayList(Subcommand),
+    errors: ArrayList(ParseError),
+
+    // is help is known right away!
+    pub fn init(allocator: Allocator) Diagnostics {
+        return .{
+            .allocator = allocator,
+            .subcommands = ArrayList(Subcommand).init(allocator),
+            .errors = ArrayList(ParseError).init(allocator),
+        };
+    }
+
+    pub fn deinit(self: *Diagnostics) void {
+        self.subcommands.deinit();
+        for (self.errors.items) |item| {
+            self.allocator.free(item.message);
+        }
+        self.errors.deinit();
+    }
+
+    fn addErrorFmt(self: *Diagnostics, original_error: anyerror, comptime fmt: []const u8, args: anytype) !void {
+        // assert there is no \n in the end
+        if (fmt[fmt.len - 1] == '\n') {
+            @compileError("errors must not contain a newline!");
+        }
+
+        if (self.is_help)
+            return;
+
+        self.error_count += 1;
+
+        const message = try std.fmt.allocPrint(self.allocator, fmt, args);
+
+        try self.errors.append(.{
+            .zig_error = original_error,
+            .message = message,
+        });
+    }
+};
 
 const testing = std.testing;
 const TestArgIterator = @import("test_helpers.zig").TestArgIterator;
