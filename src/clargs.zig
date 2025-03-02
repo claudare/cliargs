@@ -9,7 +9,7 @@ const ArgIterator = std.process.ArgIterator;
 const debug = std.debug;
 const assert = std.debug.assert;
 
-pub fn ClargInitAsLibraryUser(
+pub fn ClargGenericForLibraryUser(
     allocator: Allocator,
     arg_iterator: *ArgIterator,
     writer: AnyWriter,
@@ -29,10 +29,26 @@ pub fn Clargs(
     comptime nextFn: *const fn (T: *IArgIterator) ?([:0]const u8),
 ) type {
     return struct {
-        ptr_iter: *IArgIterator,
-
         allocator: Allocator,
+        consumer: ArgConsumer,
         writer: AnyWriter,
+
+        const ArgConsumer = struct {
+            ptr_iter: *IArgIterator,
+            consume_next: bool = true,
+            value: ?[:0]const u8 = null,
+
+            pub fn get(self: *ArgConsumer) ?([:0]const u8) {
+                if (self.consume_next) {
+                    self.consume_next = false;
+                    self.value = nextFn(self.ptr_iter);
+                }
+                return self.value;
+            }
+            pub fn consumed(self: *ArgConsumer) void {
+                self.consume_next = true;
+            }
+        };
 
         const CliArgs = @This();
 
@@ -42,8 +58,8 @@ pub fn Clargs(
             writer: AnyWriter,
         ) Allocator.Error!CliArgs {
             return CliArgs{
-                .ptr_iter = ptr_iter,
                 .allocator = allocator,
+                .consumer = ArgConsumer{ .ptr_iter = ptr_iter },
                 .writer = writer,
             };
         }
@@ -52,8 +68,40 @@ pub fn Clargs(
         }
         // typesafe functions of the generic parameters
 
-        pub fn next(self: CliArgs) ?([:0]const u8) {
-            return nextFn(self.ptr_iter);
+        pub fn subcommand(self: *CliArgs, name: []const u8, description: []const u8) !bool {
+            const value = self.consumer.get();
+
+            // accumulate to the current stack
+
+            if (value == null) {
+                return false;
+            }
+
+            // do not log errors or consume this. Manual increase later
+            const maybe_current = self.input.currentPositional();
+
+            if (maybe_current == null) {
+                // its okay? just return false
+                return false;
+            }
+            const current = maybe_current.?;
+
+            const matched = std.mem.eql(u8, current, name);
+            if (matched) {
+                self.input.consumePositional(null); // no diagnostics, thank you
+            }
+
+            // TODO: add to diagnotics
+            _ = description;
+            // if (self.diagnostics) {
+            //     try self.subcommands.append(.{
+            //         .name = name,
+            //         .description = description,
+            //         .matched = matched,
+            //     });
+            // }
+
+            return matched;
         }
     };
 }
@@ -80,14 +128,21 @@ test "can init/deinit for tests" {
 
     defer Cli.deinit();
 
-    try testing.expectEqual("hello", Cli.next());
+    try testing.expectEqual("hello", Cli.consumer.get());
+    try testing.expectEqual("hello", Cli.consumer.get());
+    Cli.consumer.consumed();
+    try testing.expectEqual("world", Cli.consumer.get());
 }
 
 test "can init/deinit for real" {
+    // it would be much simpler to use this instead of the iterator
+    // as [][]u8 is more portable. But thats more allocations...
+    // const all: [][]u8 = try std.process.argsAlloc(testing.allocator);
+
     var arg_iterator = try ArgIterator.initWithAllocator(testing.allocator);
     defer arg_iterator.deinit();
 
-    var Cli = try ClargInitAsLibraryUser(
+    var Cli = try ClargGenericForLibraryUser(
         testing.allocator,
         &arg_iterator,
         std.io.getStdOut().writer().any(),
